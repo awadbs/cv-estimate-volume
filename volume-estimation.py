@@ -287,8 +287,20 @@ fig3 = plt.figure()
 test3 = load_image('./world_rotate/trans_03.png')
 plt.imshow(test3[:, :, 0])
 
+depth_map = cv.imread('./world_rotate/depth_map_world.png')
+depth_map = cv.cvtColor(depth_map, cv.COLOR_BGR2GRAY)
 
-# In[ ]:
+fig1 = plt.figure()
+plt.imshow(depth_map)
+
+
+# In[8]:
+
+
+depth_map[400,1000]
+
+
+# In[9]:
 
 
 def rectify_two(test1,test2,pts1,pts2,F, path1,path2):
@@ -302,38 +314,71 @@ def rectify_two(test1,test2,pts1,pts2,F, path1,path2):
     img1_rectified = cv.warpPerspective(test1, H1, (w1,h1))
     img2_rectified = cv.warpPerspective(test2, H2, (w2,h2))
     
-    fig = plt.figure()
-    plt.imshow(img1_rectified)
-    
-    fig1 = plt.figure()
-    plt.imshow(img2_rectified)
     
     return img1_rectified, img2_rectified
 
 def get_depth(img1_rectified, img2_rectified):
-    stereo = cv.StereoBM(ndisparities=16*10, SADWindowSize=9)
+    #stereo = cv.StereoBM_create(numDisparities=16*10, blockSize=15)
+    
+    # CALCULATE DISPARITY (DEPTH MAP)
+    # Matched block size. It must be an odd number >=1 . Normally, it should be somewhere in the 3..11 range.
+    block_size = 11
+    min_disp = -128
+    max_disp = 128
+    # Maximum disparity minus minimum disparity. The value is always greater than zero.
+    # In the current implementation, this parameter must be divisible by 16.
+    num_disp = max_disp - min_disp
+    # Margin in percentage by which the best (minimum) computed cost function value should "win" the second best value to consider the found match correct.
+    # Normally, a value within the 5-15 range is good enough
+    uniquenessRatio = 5
+    # Maximum size of smooth disparity regions to consider their noise speckles and invalidate.
+    # Set it to 0 to disable speckle filtering. Otherwise, set it somewhere in the 50-200 range.
+    speckleWindowSize = 200
+    # Maximum disparity variation within each connected component.
+    # If you do speckle filtering, set the parameter to a positive value, it will be implicitly multiplied by 16.
+    # Normally, 1 or 2 is good enough.
+    speckleRange = 2
+    disp12MaxDiff = 0
+
+    stereo = cv.StereoSGBM_create(
+        minDisparity=min_disp,
+        numDisparities=num_disp,
+        blockSize=block_size,
+        uniquenessRatio=uniquenessRatio,
+        speckleWindowSize=speckleWindowSize,
+        speckleRange=speckleRange,
+        disp12MaxDiff=disp12MaxDiff,
+        P1=8 * 1 * block_size * block_size,
+        P2=32 * 1 * block_size * block_size,
+    )
+    
     disp = stereo.compute(np.uint8(img1_rectified), np.uint8(img2_rectified)).astype(np.float32)
+    disp = cv.normalize(disp, disp, alpha=255, beta=0, norm_type=cv.NORM_MINMAX)
+    disp = np.uint8(disp)
+
+    b = 9.51066800099
+    f = 0.05
     
     fig = plt.figure()
-    plt.imshow(disp);plt.colorbar();plt.clim(0,400)#;plt.show()
+    plt.imshow(disp);#plt.colorbar();plt.clim(0,400)#;plt.show()
 
     #plot depth by using disparity focal length `C1[0,0]` from stereo calibration and `T[0]` the distance between cameras
 
     fig2 = plt.figure()
-    plt.imshow(C1[0,0]*T[0]/(disp),cmap='hot');plt.clim(-0,500);plt.colorbar();plt.show()
+    plt.imshow(b*f/(disp),cmap='hot');plt.clim(-0,500);plt.colorbar();plt.show()
     return disp
 #read in set of 3 images, and return the points for that image.
 
 def align_points(X, i):
-    T = np.asmatrix([[10.25235012], [2.74710893], [0]])
-    R_x = np.asmatrix([[1,0,0],[0,-np.cos(63.6),np.sin(63.6)],[0,-np.sin(63.6),-np.cos(63.6)]])
-    R_t = R_x @ np.asmatrix([[-np.cos(15),np.sin(15),0],[-np.sin(15),-np.cos(15),0],[0,0,1]]).transpose()
+    #T = np.asmatrix([[10.25235012], [2.74710893], [0]])
+    #R_x = np.asmatrix([[1,0,0],[0,-np.cos(63.6),np.sin(63.6)],[0,-np.sin(63.6),-np.cos(63.6)]])
+    R_t = X @ np.asmatrix([[-np.cos(15),np.sin(15),0],[-np.sin(15),-np.cos(15),0],[0,0,1]]).transpose()
     for x in range(0, i):
-        X = X - T
+        #X = X - T
         X = R_t @ X
     return X
 
-def set_points(three_images_arr, i):
+def set_points(three_images_arr, i, depth_map):
     if len(three_images_arr) != 3:
         raise ValueError('Array must have 3 images')
     test1 = cv.imread(three_images_arr[0],0)
@@ -342,54 +387,18 @@ def set_points(three_images_arr, i):
     matches1, pts1,pts2,F = get_point_matches(test1, test2)
     matches2, pts1_1,pts2_1,F_1 = get_point_matches(test1, test3)
     
-    img1_rectified = rectify_two(test1,test2,pts1,pts2,F,"rect1","rect2")
-    img2_rectified = rectify_two(test2,test3,pts1_1,pts2_1,F_1, "rect3","rect4")
+    img1_rectified, img2_rectified = rectify_two(test1,test2,pts1,pts2,F,"rect1","rect2")
+    img2_rectified, img3_rectified = rectify_two(test2,test3,pts1_1,pts2_1,F_1, "rect3","rect4")
 
-    disp = get_depth(img1_rectified, img2_rectified)
+    disp1 = get_depth(img1_rectified, img2_rectified)
+    disp2 = get_depth(img2_rectified, img3_rectified)
+    disp3 = get_depth(img1_rectified, img3_rectified)
     
-    combined_matches = combine_matches(matches1, matches2) 
+    combined_matches = combine_matches(np.array(matches1), np.array(matches2)) 
     colors = get_match_colors(load_image(three_images_arr[0]), combined_matches)
     centers = np.mean(combined_matches, axis=0)
     matches_norm = combined_matches - centers #centered points for each image
-    f_points, im_num, f_coords = matches_norm.shape # feature points x image , x coords
-
-    D = np.zeros((6,f_points))
-    for i in range(0,f_points):
-        D[0][i] = matches_norm[i][0][0]
-        D[1][i] = matches_norm[i][0][1]
-        D[2][i] = matches_norm[i][1][0]
-        D[3][i] = matches_norm[i][1][1]
-        D[4][i] = matches_norm[i][2][0]
-        D[5][i] = matches_norm[i][2][1]
-
-    [U,S,V] = np.linalg.svd(D) #U.shape = (M,N,N) #s.shape = (m,2) #v.shape = (v,2,2)
-    true_s = np.zeros((U.shape[1], V.shape[0]))
-    true_s[:S.size, :S.size] = np.diag(S)
-    np.allclose(U.dot(true_s).dot(V), D)
-    #ux,uy,uz = U.shape
-    U_3col = np.zeros((U.shape[1],3)) # 2m x n matrix of 0s
-    for i in range(U.shape[0]):
-        U_3col[i][0] = U[i][0]
-        U_3col[i][1] = U[i][1]
-        U_3col[i][2] = U[i][2]
-    U = U_3col
-    W = np.zeros((3,3))
-    for i in range(0,3):
-        for j in range(0,3):
-            W[i][j] = true_s[i][j]
-    V_3row = np.zeros((3,V.shape[0])) # v = N
-    V_3row[0] = V[0]
-    V_3row[1] = V[1]
-    V_3row[2] = V[2]
-    V = V_3row
-
-    M = U@np.sqrt(W)
-    S = np.sqrt(W) @ V
-
-    A, X = correct_affine_ambiguity(M, S)
-    reprojected_image_points = reproject_image_points(A, X, centers)
-    X = align_points(X, i)
-    return X, colors
+    return combined_matches, colors
 
 
 def reproject_image_points(A, X, centers):  
@@ -408,8 +417,8 @@ def reproject_image_points(A, X, centers):
     return new_matrix
 
 three_images =  ['./world_rotate/trans_01.png','./world_rotate/trans_02.png','./world_rotate/trans_03.png']
-three_images1 =  ['./world_rotate/trans_03.png','./world_rotate/trans_04.png','./world_rotate/trans_05.png']
-three_images2 =  ['./world_rotate/trans_05.png','./world_rotate/trans_06.png','./world_rotate/trans_07.png']
+#three_images1 =  ['./world_rotate/trans_03.png','./world_rotate/trans_04.png','./world_rotate/trans_05.png']
+#three_images2 =  ['./world_rotate/trans_05.png','./world_rotate/trans_06.png','./world_rotate/trans_07.png']
 
 #three_images3 =  ['./world_rotate/trans_07.png','./world_rotate/trans_08.png','./world_rotate/trans_09.png']
 #three_images4 =  ['./world_rotate/trans_09.png','./world_rotate/trans_10.png','./world_rotate/trans_11.png']
@@ -424,9 +433,32 @@ three_images2 =  ['./world_rotate/trans_05.png','./world_rotate/trans_06.png','.
 #three_images11 =  ['./world_rotate/trans_24.png','./world_rotate/trans_25.png','./world_rotate/trans_26.png']
 
 
-X, colors = set_points(three_images, 0)
-X1, colors1 = set_points(three_images1, 2)
-X2, colors2 = set_points(three_images2, 4)
+X, colors = set_points(three_images, 0, depth_map)
+
+from scipy.spatial.transform import Rotation as R
+
+npad = ((0, 0), (0, 0), (0, 1))
+X_new = np.pad(X, pad_width=npad, mode='constant', constant_values=0)
+
+rotation_degrees = -15
+rotation_radians = np.radians(rotation_degrees)
+rotation_axis = np.array([0, 0, 1])
+
+rotation_vector = rotation_radians * rotation_axis
+rotation = R.from_rotvec(rotation_vector)
+
+for i,point in enumerate(X[:,0]):
+    X_new[i,0,2] = depth_map[X_new[i,0,1],X_new[i,0,0]]
+    X_new[i,1,2] = depth_map[X_new[i,1,1],X_new[i,1,0]]
+    X_new[i,2,2] = depth_map[X_new[i,2,1],X_new[i,2,0]]
+    
+    X_new[i,1,:] = rotation.apply(X_new[i,1,:])
+    X_new[i,2,:] = rotation.apply(X_new[i,2,:])
+    X_new[i,2,:] = rotation.apply(X_new[i,2,:])
+
+X = X_new
+#X1, colors1 = set_points(three_images1, 2, depth_map)
+#X2, colors2 = set_points(three_images2, 4, depth_map)
 
 #X3, colors3 = set_points(three_images3, 6)
 #X4, colors4 = set_points(three_images4, 8)
@@ -443,14 +475,14 @@ X2, colors2 = set_points(three_images2, 4)
 #X = np.concatenate((X,X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,X11), axis=1)
 #colors = np.concatenate((colors,colors1,colors2,colors3,colors4,colors5,colors6,colors7,colors8,colors9,colors10,colors11))
 
-X = np.concatenate((X,X1,X2), axis=1)
-colors = np.concatenate((colors,colors1,colors2))
+#X = np.concatenate((X,X1,X2), axis=0)
+#colors = np.concatenate((colors,colors1,colors2))
 
 np.save("points.npy", X)
 np.save("colors.npy", colors)
 
 
-# In[ ]:
+# In[10]:
 
 
 import matplotlib.pyplot as plt
@@ -460,50 +492,21 @@ from mpl_toolkits.mplot3d import Axes3D
 X = np.load("points.npy")
 colors = np.load("colors.npy")
 colors = np.true_divide(colors,255) # convert values to between 0 and 1
-print(colors.shape)
-
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 
-ax.scatter(X[0, :], X[1, :], X[2, :], c=colors)
-ax.set_xlim3d([-250, 250])
-ax.set_ylim3d([-250, 250])
-ax.set_zlim3d([-250, 250])
+ax.scatter(X[:,0], X[:,1], X[:,1], c=colors)
+ax.set_xlim3d([-750, 750])
+ax.set_ylim3d([-750, 750])
+ax.set_zlim3d([-750, 750])
 plt.show()
 
 
-# In[ ]:
+# In[11]:
 
 
-visualize_matches(test1[:, :, 0], test2[:, :, 0], matches1)
-
-
-# In[ ]:
-
-
-#combined_matches = combine_matches(matches1, matches2)
-
-
-# In[ ]:
-
-
-matches1[:,0,0].flatten().shape
-
-
-# In[ ]:
-
-
-matches1.shape[0]
-
-
-# In[ ]:
-
-
-h_graph = solve_homography_ransac(matches1, test1[:,:,0], test2[:,:,0], rounds=100, sigma=5, s=4)
-
-
-# In[ ]:
-
+#visualize_matches(three_images[0][:, :, 0], test2[:, :, 0], X)
+#h_graph = solve_homography_ransac(matches1, test1[:,:,0], test2[:,:,0], rounds=100, sigma=5, s=4)
 
 def visualize_computed_transform(image_base, image_transformed, H, matches):
     fig = plt.figure(figsize=(8, 8), dpi=150)
@@ -522,15 +525,82 @@ def visualize_computed_transform(image_base, image_transformed, H, matches):
     plt.title('Reconstruction Difference')
 
 
+# In[12]:
+
+
+#attempt at depth map function from https://bit.ly/3nueicu for cost function
+#and depth map algo from https://bit.ly/3dYh8DE
+def cost_depth(ref_image, x, y, d):
+    #disparity is defined as x_l - x_r
+    #cost curve is set of cost values for all allowable disparities
+    # for the pixel
+
+    #c(x,y,d) contains cost values for each possible match
+    #within the defined disparity range from a corresponding pixels
+    return
+    #c_1(x,y) and c_2(x,y) indicate minimum and second minimum values
+    #of cost curve
+    
+def c_mean(ref_image, x, y):
+    #average of costs within the defined disparity range
+    #costs within this margin will have negative influence on 
+    #confidence value, where as costs outside, do not have
+    #any influence
+    return
+
+def conf_depth(ref_image,x,y,d):
+    #x and y are the constraints of the disparity range
+    d_diff = max(d) - min(d)
+    
+    d_sum = 0
+    for i in range(0, len(d-1)):
+        d_delta = abs(d[i] - ref_image[x,y])
+        d_num = d_diff/float(3)
+        d_num = min((d_delta - 1), w)
+        d_num = max(w, 0)**2
+         
+        c_delta = cost_depth(ref_image,x,y,d) - min(cost(ref_image,x,y,d))
+        d_denom = max(np.divide(c_delta - c_mean(ref_image,x,y),3),1)
+        
+        d_sum = d_sum + (d_num/d_denom)
+        
+    return 1/float(d_sum)
+        
+
+def simple_depth_map(ref_image, neighboring_images, depth_range):
+    ret_values = np.zeros((ref_image.shape,3))
+    for i in range(rows):
+        for j in range(cols):
+            p = ref_image[i,j]
+            C_best = float('-inf')
+            for d in depth_range:
+                C_pd = np.correlate(p, d, 'full')
+                if C_pd > C_best:
+                    C_best = d
+                    d_best = d
+                    f_best = conf_depth(ref_image,i,j,d)
+                    
+    ret_values[i] = (p, d_best, f_best)             
+                    
+            
+
+
 # In[ ]:
 
 
-#np_matches = np.array([[fa.x, fa.y, fb.x, fb.y] for fa, fb in matches])
-visualize_computed_transform(test1[:,:,0], test2[:,:,0], h_graph, matches1)
-
-
-# In[ ]:
 
 
 
+# In[13]:
+
+
+def penalty(f):
+    return
+
+lambda_reg = 1.0
+#lambda_reg is a 
+#regularization parameter controls the degree of spatial smoothness
+
+def cost_vol(depth_map, label):
+    E = np.sum(penalty(f)) + lambda_reg*np.sum(1-1)
 
