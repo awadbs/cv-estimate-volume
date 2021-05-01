@@ -322,7 +322,7 @@ ax.scatter(X0_rec[:, 0], X0_rec[:, 1], X0_rec[:, 2])
 plt.show()
 
 
-# In[13]:
+# In[29]:
 
 
 depth_map = cv.imread('./world_rotate/depth_map_world.png',0)
@@ -375,7 +375,7 @@ for u in range(0,height):
     
 
 
-# In[86]:
+# In[30]:
 
 
 def diff(x,y):
@@ -393,7 +393,7 @@ def diff(x,y):
 
 fig1 = plt.figure()
 ax = plt.axes(projection='3d')
-Y_s = np.multiply(-1,Y_s)
+#Y_s = np.multiply(-1,Y_s)
 ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens',s=15)
 
 if(min(Y_s)>0):
@@ -415,13 +415,7 @@ ax.set_zlim3d([min(Z_s)-20, max(Z_s)+20])
 plt.show()
 
 
-# In[78]:
-
-
-Y_s_pt
-
-
-# In[22]:
+# In[31]:
 
 
 from scipy.spatial.transform import Rotation as R
@@ -439,15 +433,63 @@ pts = list(zip(X_s,Y_s,Z_s))
 pts = [np.array(i) for i in pts]
 
 
-# In[23]:
+# In[35]:
 
 
+from math import pi ,sin, cos
+
+if(min(Y_s)>0):
+    Y_s_pt = min(Y_s) + 3
+else:
+    Y_s_pt = min(Y_s) - 3
+
+P1 = [diff(max(X_s),min(X_s)), max(Y_s), min(Z_s)]
+P2 = [diff(max(X_s),min(X_s)), max(Y_s), max(Z_s)]
+
+u = np.array(P2)-np.array(P1)
+
+L = u[0]**2 + u[1]**2 + u[2]**2
+
+#https://stackoverflow.com/questions/17763655/rotation-of-a-point-in-3d-about-an-arbitrary-axis-using-python
+#https://docs.google.com/viewer?a=v&pid=sites&srcid=ZGVmYXVsdGRvbWFpbnxnbGVubm11cnJheXxneDoyMTJiZTZlNzVlMjFiZTFi
+def R(theta, u, L, x):
+    
+    a = (u[0]**2 + (u[1]**2+u[2]**2)*cos(theta))/L
+    b = (u[0]*u[1]*(1-cos(theta))-u[2]*np.sqrt(L)*sin(theta))/L
+    c = (u[0]*u[2]*(1-cos(theta))+u[1]*np.sqrt(L)*sin(theta))/L
+    d = (P1[0]*(u[1]**2+u[2]**2)-u[0]*(P1[1]*u[1]+P1[2]*u[2]))*(1-cos(theta))+(P1[1]*u[2]-P1[2]*u[1])*np.sqrt(L)*sin(theta)
+
+    e = (u[0]*u[1]*(1-cos(theta))+u[2]*np.sqrt(L)*sin(theta))/L
+    f = (u[1]**2 + (u[0]**2+u[2]**2)*cos(theta))/L
+    g = (u[1]*u[2]*(1-cos(theta))-u[0]*np.sqrt(L)*sin(theta))/L
+    h = (P1[1]*(u[0]**2+u[2]**2)-u[1]*(P1[0]*u[0]+P1[2]*u[2]))*(1-cos(theta))+(P1[2]*u[0]-P1[0]*u[2])*np.sqrt(L)*sin(theta)
+
+    i = (u[0]*u[2]*(1-cos(theta))-u[1]*np.sqrt(L)*sin(theta))/L
+    j = (u[1]*u[2]*(1-cos(theta))-u[0]*np.sqrt(L)*sin(theta))/L
+    k = (u[2]**2 + (u[0]**2+u[1]**2)*cos(theta))/L
+    l = (P1[2]*(u[0]**2+u[1]**2)-u[2]*(P1[0]*u[0]+P1[1]*u[1]))*(1-cos(theta))+(P1[0]*u[1]-P1[1]*u[0])*np.sqrt(L)*sin(theta)
+
+    x = np.append(x,1)
+    return x @ [[a,b,c,d],
+            [e,f,g,h],
+            [i,j,k,l],
+           [0,0,0,1]] 
+
+pts_rot = []
 for i in range(0,len(X_s)):
-    pts_rot.append(rotation.apply(pts[i].T).tolist())
+    pts_rot.append(R(15,u,L,pts[i].T)[:-1].tolist())
 pts_rot = np.array(pts_rot)
 
 
-# In[24]:
+# In[18]:
+
+
+#for i in range(0,len(X_s)):
+#    pts_rot.append(rotation.apply(pts[i].T).tolist())
+#pts_rot = np.array(pts_rot)
+
+
+# In[36]:
 
 
 X_s_1 = pts_rot[:,0]
@@ -455,14 +497,14 @@ Y_s_1 = pts_rot[:,1]
 Z_s_1 = pts_rot[:,2]
 
 
-# In[26]:
+# In[37]:
 
 
-#fig2 = plt.figure()
-#ax = plt.axes(projection='3d')
-#ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens')
-#ax.scatter3D(X_s_1,Y_s_1,Z_s_1)
-#plt.show()
+fig2 = plt.figure()
+ax = plt.axes(projection='3d')
+ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens')
+ax.scatter3D(X_s_1,Y_s_1,Z_s_1)
+plt.show()
 
 
 # In[ ]:
