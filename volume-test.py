@@ -58,7 +58,38 @@ def get_point_matches(img1, img2):
     pts1 = pts1[mask.ravel()==1]
     pts2 = pts2[mask.ravel()==1]
     
-    return np.stack((pts1, pts2), axis=1), pts1, pts2, F
+    pt1 = np.append(pts1[0],1)
+    pt2 = np.append(pts2[0],1)
+    epi_cnst = np.transpose(pt2)@F@pt1
+    print("Epipolar constraint is ", epi_cnst)
+    
+    f = 0.05
+    K1 = [[f, 0, img1.shape[0]/2],
+     [0, f, img1.shape[1]/2],
+     [0, 0, 1]]
+    
+    K2 = [[f, 0, img1.shape[0]/2 + .00918],
+     [0, f, img1.shape[1]/2 + .00246],
+     [0, 0, 1]]
+    
+    
+    E_mat = np.transpose(K2)@F@K1
+    u, s, vh = np.linalg.svd(E_mat, full_matrices=False)
+    newE = u@np.eye(3)@np.transpose(vh)
+    u, s, vh = np.linalg.svd(newE, full_matrices=False)
+    
+    W = np.eye(3)
+    
+    R1 = u@W@np.transpose(vh)
+    R2 = u@np.transpose(W)@np.transpose(vh)
+    print("u is ", u)
+    
+    u = np.array(u)
+    t1 = u[:,-1]
+    t2 = -u[:,-1]
+    
+    
+    return np.stack((pts1, pts2), axis=1), pts1, pts2, F, R1, R2, t1, t2
 # combine feature matches
 def combine_matches(matches_a, matches_b):
     """Assumes that the 0'th image is the same between them."""
@@ -82,9 +113,9 @@ def combine_matches(matches_a, matches_b):
 
 
 def visualize_matches(img_a, img_b, matches, ax=None):
-    #if ax is None:
-        #fig = plt.figure(figsize=(20,20))
-        #ax = plt.gca()
+    if ax is None:
+        fig = plt.figure(figsize=(20,20))
+        ax = plt.gca()
     
     sa = img_a.shape
     sb = img_b.shape
@@ -96,10 +127,10 @@ def visualize_matches(img_a, img_b, matches, ax=None):
         dtype=np.float)
     merged_imgs[0:sa[0], 0:sa[1]] = img_a
     merged_imgs[0:sb[0], sa[1]+sp:] = img_b
-    #ax.imshow(merged_imgs)
+    ax.imshow(merged_imgs)
     
-    #for m in matches:
-        #ax.plot([m[0][0], m[1][0]+off], [m[0][1], m[1][1]], 'r', alpha=0.5)
+    for m in matches:
+        ax.plot([m[0][0], m[1][0]+off], [m[0][1], m[1][1]], 'r', alpha=0.5)
 
 def get_match_colors(image_c, combined_matches):
     colors = []
@@ -124,13 +155,13 @@ def rectify_two(test1,test2,pts1,pts2, F):
     img1_rectified = cv.warpPerspective(test1, H1, (w1,h1))
     img2_rectified = cv.warpPerspective(test2, H2, (w2,h2))
     
-    #fig, axes = plt.subplots(1,2, figsize=(15, 10))
-    #axes[0].imshow(img1_rectified, cmap="gray")
-    #axes[1].imshow(img2_rectified, cmap='gray')
-    #axes[0].axhline(400)
-    #axes[1].axhline(400)
-    #axes[0].axhline(600)
-    #axes[1].axhline(600)
+    fig, axes = plt.subplots(1,2, figsize=(15, 10))
+    axes[0].imshow(img1_rectified, cmap="gray")
+    axes[1].imshow(img2_rectified, cmap='gray')
+    axes[0].axhline(400)
+    axes[1].axhline(400)
+    axes[0].axhline(600)
+    axes[1].axhline(600)
 
     
     return img1_rectified, img2_rectified
@@ -145,8 +176,8 @@ def set_points(three_images_arr, i, depth_map):
     test1 = cv.imread(three_images_arr[0],0)
     test2 = cv.imread(three_images_arr[1],0)
     test3 = cv.imread(three_images_arr[2],0)
-    matches1, pts1,pts2,F = get_point_matches(test1, test2)
-    matches2, pts1_1,pts2_1,F_1 = get_point_matches(test1, test3)
+    matches1, pts1,pts2,F,R1,R2,t1,t2 = get_point_matches(test1, test2)
+    matches2, pts1_1,pts2_1,F_1,R1_1,R2_1,t1_1,t2_1 = get_point_matches(test1, test3)
     
     visualize_matches(test1, test2, matches1, ax=None)
     visualize_matches(test1, test3, matches2, ax=None)
@@ -157,36 +188,42 @@ def set_points(three_images_arr, i, depth_map):
     combined_matches = combine_matches(np.array(matches1), np.array(matches2)) 
     colors = get_match_colors(load_image(three_images_arr[0]), combined_matches)
 
-    return combined_matches, colors, img1_rectified, img2_rectified, img3_rectified
+    return combined_matches, colors, img1_rectified, img2_rectified, img3_rectified, R1,R2,t1,t2,R1_1,R2_1,t1_1,t2_1 
 
 
 # In[7]:
 
 
 test1 = load_image('./world_rotate/trans_01.png')
-#fig1 = plt.figure()
-#plt.imshow(test1[:, :, 0])
+fig1 = plt.figure()
+plt.imshow(test1[:, :, 0])
 
-#fig2 = plt.figure()
+fig2 = plt.figure()
 test2 = load_image('./world_rotate/trans_02.png')
-#plt.imshow(test2[:, :, 0])
+plt.imshow(test2[:, :, 0])
 
-#fig3 = plt.figure()
+fig3 = plt.figure()
 test3 = load_image('./world_rotate/trans_03.png')
-#plt.imshow(test3[:, :, 0])
+plt.imshow(test3[:, :, 0])
 
 depth_map = cv.imread('./world_rotate/depth_map_world.png')
 depth_map = cv.cvtColor(depth_map, cv.COLOR_BGR2GRAY)
 
-#fig1 = plt.figure()
-#plt.imshow(depth_map)
+fig1 = plt.figure()
+plt.imshow(depth_map)
+
+depth_map_nl = cv.imread('./world_rotate/depth_map_nolight.png')
+depth_map_nl = cv.cvtColor(depth_map_nl, cv.COLOR_BGR2GRAY)
+
+fig1 = plt.figure()
+plt.imshow(depth_map_nl)
 
 
 # In[8]:
 
 
 three_images =  ['./world_rotate/trans_01.png','./world_rotate/trans_02.png','./world_rotate/trans_03.png']
-X, colors, img1_rectified, img2_rectified, img3_rectified = set_points(three_images, 0, depth_map)
+X_matches, colors, img1_rectified, img2_rectified, img3_rectified, R1,R2,t1,t2, R1_1,R2_1,t1_1,t2_1 = set_points(three_images, 0, depth_map)
 
 
 # In[9]:
@@ -230,8 +267,8 @@ def get_depth(img1_rectified, img2_rectified):
     b = 9.51066800099
     f = 0.05
     
-    #fig = plt.figure()
-    #plt.imshow(disp)
+    fig = plt.figure()
+    plt.imshow(disp)
 get_depth(img1_rectified, img2_rectified)
 
 
@@ -246,22 +283,22 @@ def get_depth_2(img1_rectified, img2_rectified):
                                    P2 = 32*1*3*3
                                   )
     dispSGBM = stereoSGBM.compute(img1_rectified, img2_rectified).astype(np.float32) / 16
-    #fig1 = plt.figure()
-    #plt.imshow(dispSGBM, 'gray')
-    #plt.colorbar()
+    fig1 = plt.figure()
+    plt.imshow(dispSGBM, 'gray')
+    plt.colorbar()
     
     stereoBM = cv.StereoBM_create(numDisparities=16, blockSize=15)
     dispBM = stereoBM.compute(img1_rectified, img2_rectified)
     
-    #fig2 = plt.figure()
-    #plt.imshow(dispBM, 'gray')
-    #plt.colorbar()
+    fig2 = plt.figure()
+    plt.imshow(dispBM, 'gray')
+    plt.colorbar()
 dispSGBM_1 = get_depth_2(img1_rectified, img2_rectified)
 
 dispSGBM_2 = get_depth_2(img2_rectified, img3_rectified)
 
 
-# In[11]:
+# In[12]:
 
 
 #Camera measurements in Blender
@@ -275,8 +312,8 @@ dispSGBM_2 = get_depth_2(img2_rectified, img3_rectified)
 
 #9.51066800099 = baseline
 
-b = 9.51066800099 #mm is 35.9 pixels 
-f = .050 #50mm is 188.9 pixels
+b = 35.9 
+f = 188.9 
 
 # Camera matrix
 K = [[f, 0, img1_rectified.shape[0]/2],
@@ -286,11 +323,12 @@ R = np.eye(3)
 ta = [[0],[0],[1]]
 Pa = K @ np.concatenate((R, ta), axis=1)
 
-R = [[np.cos(0.261799),-np.sin(0.261799),0],
-     [np.sin(0.261799),np.cos(0.261799),0],
+R = [[np.cos(15),-np.sin(15),0],
+     [np.sin(15),np.cos(15),0],
      [0,0,1]]     
-tb = [[.00918], [.00246], [0]] 
+tb = [[34.720032502], [9.3071030883], [0]] 
 Pb = K @ np.concatenate((R, tb), axis=1)
+
 
 def solve_point_triangulation(proj_points, proj_matrices):
     # First we build the matrix
@@ -304,8 +342,8 @@ def solve_point_triangulation(proj_points, proj_matrices):
     X = vh[np.argmin(s)]
     return X/X[3]
 
-pa = X[:,0].tolist()
-pb = X[:,1].tolist()
+pa = X_matches[:,0].tolist()
+pb = X_matches[:,1].tolist()
 
 X0_rec = np.empty([len(pa),3])
 for pta,ptb in zip(pa,pb):
@@ -313,7 +351,7 @@ for pta,ptb in zip(pa,pb):
     X0_rec = np.append(X0_rec,np.array([pt]),axis=0)
 
 
-# In[12]:
+# In[13]:
 
 
 fig = plt.figure()
@@ -322,17 +360,30 @@ ax.scatter(X0_rec[:, 0], X0_rec[:, 1], X0_rec[:, 2])
 plt.show()
 
 
-# In[29]:
+# In[19]:
 
 
-depth_map = cv.imread('./world_rotate/depth_map_world.png',0)
-#(1080, 1920, 3)
-#540, 960
-print(depth_map[0][0])
-print(depth_map[540][960])
-#plt.imshow(depth_map)
+#three_images =  ['./world_rotate/trans_01.png','./world_rotate/trans_02.png','./world_rotate/trans_03.png']
+#X_matches, colors, img1_rectified, img2_rectified, img3_rectified, R1,R2,t1,t2, R1_1,R2_1,t1_1,t2_1 = set_points(three_images, 0, depth_map)
 
-height, width = depth_map.shape
+
+# In[58]:
+
+
+from skimage import filters
+
+src = cv.imread('./world_rotate/depthmap.jfif',0)
+fig2 = plt.figure()
+plt.imshow(src)
+
+width = test1.shape[0]
+height = test1.shape[1]
+dim = (width, height)
+  
+# resize image
+src = cv.resize(src, dim, interpolation = cv.INTER_AREA)
+
+
 #mask = np.where(depth_map < 200)
 #x = mask[1]
 #y = mask[0]
@@ -347,93 +398,91 @@ height, width = depth_map.shape
 #ones = np.ones(world_z.shape[0], dtype=np.float32)
 
 #pcloud = np.vstack((world_x,world_y,world_z)).T
-
+height, width = src.shape
 
 pt_cloud = []
-x_center = 960
-y_center = 540
+x_center = src.shape[0]
+y_center = src.shape[1]
 foc_l = .05
-X_s = []
-Z_s = []
-Y_s = []
-for u in range(0,height):
-    for v in range(0,width):
-        Y = depth_map[u][v]
-        if Y < 204:
-            if foc_l > 0 and Y > 0:
-                Z = (v - x_center) * Y / (Y / foc_l)
-                X = (u - y_center) * Y / (Y / foc_l)
-            else:
-                Z = 0
-                X = 0
-        
+
+im_1_pts = X_matches[:,0]
+im_2_pts = X_matches[:,1]
+im_3_pts = X_matches[:,2]
+
+ims = [im_1_pts, im_2_pts, im_3_pts]
+
+img_pts = []
+for imj in ims:
+    X_s = []
+    Z_s = []
+    Y_s = []
+
+    u_coords = imj[:,0]
+    v_coords = imj[:,1]
+    for u,v in zip(u_coords, v_coords):
+            Y = src[u][v]*foc_l
+
+            Z = (v - x_center) * src[u][v] / (src[u][v] / foc_l)
+            X = (u - y_center) * src[u][v] / (src[u][v] / foc_l)
+
             Z_s.append(Z)
             X_s.append(X)
             Y_s.append(Y)
-
-    
-    
-
-
-# In[30]:
-
-
-def diff(x,y):
-    if(x > y):
-        if(y<0):
-            z = x+y
-        else:
-            z = x-y
-    elif(y > x):
-        if(x<0):
-            z = x+y
-        else:
-            z = y-x
-    return z/2
-
+    img_pts.append(list(zip(X_s, Y_s, Z_s)))
+  
 fig1 = plt.figure()
 ax = plt.axes(projection='3d')
-#Y_s = np.multiply(-1,Y_s)
 ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens',s=15)
 
-if(min(Y_s)>0):
-    Y_s_pt = min(Y_s) + 3
-else:
-    Y_s_pt = min(Y_s) - 3
-    
-ax.scatter(diff(max(X_s),min(X_s)), Y_s_pt, min(Z_s), c='r', marker='o', s=50)
-ax.scatter(diff(max(X_s),min(X_s)), Y_s_pt, max(Z_s), c='m', marker='o', s=50)
-
-ax.scatter(diff(max(X_s),min(X_s)), max(Y_s), min(Z_s), c='y', marker='o', s=50)
-ax.scatter(diff(max(X_s),min(X_s)), max(Y_s), max(Z_s), c='g', marker='o', s=50)
-
-ax.set_xlim3d([min(X_s)-20, max(X_s)+20])
-ax.set_ylim3d([min(Y_s)-20, max(Y_s)+20])
-ax.set_zlim3d([min(Z_s)-20, max(Z_s)+20])
-
-#ax.scatter(diff(max(X_s),min(X_s)), 0, min(Z_s), c='r', marker='o')
-plt.show()
+#depth_min = min(X_s)
+#depth_max = max(X_s)
+#diff = depth_max - depth_min    
+#Y_s = [((i - depth_min)/diff)*depth_max for i in Y_s]    
 
 
-# In[31]:
+# In[59]:
 
 
 from scipy.spatial.transform import Rotation as R
 
-rotation_degrees = 30
-rotation_radians = np.radians(rotation_degrees)
-rotation_axis = np.array([0, 0, 1])
+for i in range(1,len(img_pts)):
+    
+    angle = 15*i
+    rotation_degrees = angle
+    rotation_radians = np.radians(rotation_degrees)
+    rotation_axis = np.array([0, 0, 1])
+    rotation_vector = rotation_radians * rotation_axis
+    rotation = R.from_rotvec(rotation_vector)
 
-rotation_vector = rotation_radians * rotation_axis
-rotation = R.from_rotvec(rotation_vector)
+    for j,pt in enumerate(img_pts[i]):
+        img_pts[i][j] = rotation.apply(pt)
+#pts_rot = np.array(pts_rot)
+im_1_pts = img_pts[0]
+im_2_pts = img_pts[1]
+im_3_pts = img_pts[2]
 
-pts_rot = []
 
-pts = list(zip(X_s,Y_s,Z_s))
-pts = [np.array(i) for i in pts]
+# In[60]:
 
 
-# In[35]:
+X_s, Y_s, Z_s = [a_tuple[0] for a_tuple in im_1_pts], [a_tuple[1] for a_tuple in im_1_pts], [a_tuple[2] for a_tuple in im_1_pts]
+
+X_s_1, Y_s_1, Z_s_1 = [a_tuple[0] for a_tuple in im_2_pts], [a_tuple[1] for a_tuple in im_2_pts], [a_tuple[2] for a_tuple in im_2_pts]
+X_s_2, Y_s_2, Z_s_2 = [a_tuple[0] for a_tuple in im_3_pts], [a_tuple[1] for a_tuple in im_3_pts], [a_tuple[2] for a_tuple in im_3_pts]
+
+
+# In[61]:
+
+
+fig2 = plt.figure()
+ax = plt.axes(projection='3d')
+ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens')
+ax.scatter3D(X_s_1,Y_s_1,Z_s_1, cmap='Blues')
+ax.scatter3D(X_s_2,Y_s_2,Z_s_2, cmap='Reds')
+plt.show()
+
+
+# In[ ]:
 
 
 from math import pi ,sin, cos
@@ -477,19 +526,11 @@ def R(theta, u, L, x):
 
 pts_rot = []
 for i in range(0,len(X_s)):
-    pts_rot.append(R(15,u,L,pts[i].T)[:-1].tolist())
+    pts_rot.append(R(5,u,L,pts[i].T)[:-1].tolist())
 pts_rot = np.array(pts_rot)
 
 
-# In[18]:
-
-
-#for i in range(0,len(X_s)):
-#    pts_rot.append(rotation.apply(pts[i].T).tolist())
-#pts_rot = np.array(pts_rot)
-
-
-# In[36]:
+# In[ ]:
 
 
 X_s_1 = pts_rot[:,0]
@@ -497,13 +538,13 @@ Y_s_1 = pts_rot[:,1]
 Z_s_1 = pts_rot[:,2]
 
 
-# In[37]:
+# In[ ]:
 
 
 fig2 = plt.figure()
 ax = plt.axes(projection='3d')
 ax.scatter3D(X_s,Y_s,Z_s,c=Z_s,cmap='Greens')
-ax.scatter3D(X_s_1,Y_s_1,Z_s_1)
+ax.scatter3D(X_s_1,Y_s_1,Z_s_1, cmap='Blues')
 plt.show()
 
 
